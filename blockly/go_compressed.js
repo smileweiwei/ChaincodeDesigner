@@ -1,48 +1,9 @@
-/**
- * @license
- * Visual Blocks Language
- *
- * Copyright 2012 Google Inc.
- * https://developers.google.com/blockly/
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/**
- * @fileoverview Helper functions for generating Go for blocks.
- * @author fraser@google.com (Neil Fraser)
- */
 'use strict';
 
-/**
- * Go code generator.
- * @type {!Blockly.Generator}
- */
 Blockly.Go = new Blockly.Generator('Go');
 
-/**
- * List of illegal variable names.
- * This is not intended to be a security feature.  Blockly is 100% client-side,
- * so bypassing this list is trivial.  This is intended to prevent users from
- * accidentally clobbering a built-in object or function.
- * @private
- */
 Blockly.Go.addReservedWords();
 
-/**
- * Order of operation ENUMs.
- * https://developer.mozilla.org/en/Go/Reference/Operators/Operator_Precedence
- */
 Blockly.Go.ORDER_ATOMIC = 0; // 0 "" ...
 Blockly.Go.ORDER_NEW = 1.1; // new
 Blockly.Go.ORDER_MEMBER = 1.2; // . []
@@ -471,16 +432,52 @@ Blockly.Go.set_value = function(block) {
 	code += 'if ' + valuable_err + ' != nil {\n  return shim.Error(' + valuable_err + '.Error())\n}\n';
 	return code;
 };
-Blockly.Go.text = function(block) {
-	// Text value.
-	var code = Blockly.Go.quote_(block.getFieldValue('TEXT'));
-	return [code, Blockly.Go.ORDER_ATOMIC];
+Blockly.Go.controls_if = function(block) {
+  // If/elseif/else condition.
+  var n = 0;
+  var code = '', branchCode, conditionCode;
+  do {
+    conditionCode = Blockly.Go.valueToCode(block, 'IF' + n,
+      Blockly.Go.ORDER_NONE) || 'false';
+    branchCode = Blockly.Go.statementToCode(block, 'DO' + n);
+    code += (n > 0 ? ' else ' : '') +
+        'if  ' + conditionCode + '  {\n' + branchCode + '}';
+
+    ++n;
+  } while (block.getInput('IF' + n));
+
+  if (block.getInput('ELSE')) {
+    branchCode = Blockly.Go.statementToCode(block, 'ELSE');
+    code += ' else {\n' + branchCode + '}';
+  }
+  return code + '\n';
 };
 
-Blockly.Go.math_number = function(block) {
-	// Numeric value.
-	var code = parseFloat(block.getFieldValue('NUM'));
-	return [code, Blockly.Go.ORDER_ATOMIC];
+Blockly.Go.controls_ifelse = Blockly.Go['controls_if'];
+
+Blockly.Go.logic_compare = function(block) {
+  // Comparison operator.
+  var OPERATORS = {
+    'EQ': '==',
+    'NEQ': '!=',
+    'LT': '<',
+    'LTE': '<=',
+    'GT': '>',
+    'GTE': '>='
+  };
+  var operator = OPERATORS[block.getFieldValue('OP')];
+  var order = (operator == '==' || operator == '!=') ?
+      Blockly.Go.ORDER_EQUALITY : Blockly.Go.ORDER_RELATIONAL;
+  var argument0 = Blockly.Go.valueToCode(block, 'A', order) || '0';
+  var argument1 = Blockly.Go.valueToCode(block, 'B', order) || '0';
+  var code = argument0 + ' ' + operator + ' ' + argument1;
+  return [code, order];
+};
+
+Blockly.Go.logic_boolean = function(block) {
+  // Boolean values true and false.
+  var code = (block.getFieldValue('BOOL') == 'TRUE') ? 'true' : 'false';
+  return [code, Blockly.Go.ORDER_ATOMIC];
 };
 
 Blockly.Go.controls_repeat_ext = function(block) {
@@ -525,18 +522,126 @@ Blockly.Go.controls_whileUntil = function(block) {
   return 'for ' + argument0 + ' {\n' + branch + '}\n';
 };
 
-Blockly.Go.variables_get = function(block) {
-	// Variable getter.
-	var code = Blockly.Go.variableDB_.getName(block.getFieldValue('VAR'),
-		Blockly.Variables.NAME_TYPE);
-	return [code, Blockly.Go.ORDER_ATOMIC];
+Blockly.Go.controls_for = function(block) {
+  // For loop.
+  var variable0 = Blockly.Go.variableDB_.getName(
+      block.getFieldValue('VAR'), Blockly.Variables.NAME_TYPE);
+  var argument0 = Blockly.Go.valueToCode(block, 'FROM',
+      Blockly.Go.ORDER_ASSIGNMENT) || '0';
+  var argument1 = Blockly.Go.valueToCode(block, 'TO',
+      Blockly.Go.ORDER_ASSIGNMENT) || '0';
+  var increment = Blockly.Go.valueToCode(block, 'BY',
+      Blockly.Go.ORDER_ASSIGNMENT) || '1';
+  var branch = Blockly.Go.statementToCode(block, 'DO');
+  branch = Blockly.Go.addLoopTrap(branch, block.id);
+  var code;
+  if (Blockly.isNumber(argument0) && Blockly.isNumber(argument1) &&
+      Blockly.isNumber(increment)) {
+    // All arguments are simple numbers.
+    var up = parseFloat(argument0) <= parseFloat(argument1);
+    code = 'for ' + variable0 + ' = ' + argument0 + '; ' +
+        variable0 + (up ? ' <= ' : ' >= ') + argument1 + '; ' +
+        variable0;
+    var step = Math.abs(parseFloat(increment));
+    if (step == 1) {
+      code += up ? '++' : '--';
+    } else {
+      code += (up ? ' += ' : ' -= ') + step;
+    }
+    code += ' {\n' + branch + '}\n';
+  } else {
+    code = '';
+    // Cache non-trivial values to variables to prevent repeated look-ups.
+    var startVar = argument0;
+    if (!argument0.match(/^\w+$/) && !Blockly.isNumber(argument0)) {
+      startVar = Blockly.Go.variableDB_.getDistinctName(
+          variable0 + '_start', Blockly.Variables.NAME_TYPE);
+      code += 'var ' + startVar + ' = ' + argument0 + ';\n';
+    }
+    var endVar = argument1;
+    if (!argument1.match(/^\w+$/) && !Blockly.isNumber(argument1)) {
+      var endVar = Blockly.Go.variableDB_.getDistinctName(
+          variable0 + '_end', Blockly.Variables.NAME_TYPE);
+      code += 'var ' + endVar + ' = ' + argument1 + ';\n';
+    }
+    // Determine loop direction at start, in case one of the bounds
+    // changes during loop execution.
+    var incVar = Blockly.Go.variableDB_.getDistinctName(
+        variable0 + '_inc', Blockly.Variables.NAME_TYPE);
+    code += 'var ' + incVar + ' = ';
+    if (Blockly.isNumber(increment)) {
+      code += Math.abs(increment) + ';\n';
+    } else {
+      code += 'Math.abs(' + increment + ');\n';
+    }
+    code += 'if (' + startVar + ' > ' + endVar + ') {\n';
+    code += Blockly.Go.INDENT + incVar + ' = -' + incVar + ';\n';
+    code += '}\n';
+    code += 'for (' + variable0 + ' = ' + startVar + '; ' +
+        incVar + ' >= 0 ? ' +
+        variable0 + ' <= ' + endVar + ' : ' +
+        variable0 + ' >= ' + endVar + '; ' +
+        variable0 + ' += ' + incVar + ') {\n' +
+        branch + '}\n';
+  }
+  return code;
+};
+
+Blockly.Go.math_number = function(block) {
+  // Numeric value.
+  var code = parseFloat(block.getFieldValue('NUM'));
+  return [code, Blockly.Go.ORDER_ATOMIC];
+};
+
+Blockly.Go.math_arithmetic = function(block) {
+  // Basic arithmetic operators, and power.
+  var OPERATORS = {
+    'ADD': [' + ', Blockly.Go.ORDER_ADDITION],
+    'MINUS': [' - ', Blockly.Go.ORDER_SUBTRACTION],
+    'MULTIPLY': [' * ', Blockly.Go.ORDER_MULTIPLICATION],
+    'DIVIDE': [' / ', Blockly.Go.ORDER_DIVISION],
+    'POWER': [null, Blockly.Go.ORDER_COMMA]  // Handle power separately.
+  };
+  var tuple = OPERATORS[block.getFieldValue('OP')];
+  var operator = tuple[0];
+  var order = tuple[1];
+  var argument0 = Blockly.Go.valueToCode(block, 'A', order) || '0';
+  var argument1 = Blockly.Go.valueToCode(block, 'B', order) || '0';
+  var code;
+  // Power in Go requires a special case since it has no operator.
+  if (!operator) {
+    code = 'Math.pow(' + argument0 + ', ' + argument1 + ')';
+    return [code, Blockly.Go.ORDER_FUNCTION_CALL];
+  }
+  code = argument0 + operator + argument1;
+  return [code, order];
+};
+
+Blockly.Go.text  = function(block) {
+  // Text value.
+  var code = Blockly.Go.quote_(block.getFieldValue('TEXT'));
+  return [code, Blockly.Go.ORDER_ATOMIC];
+};
+
+Blockly.Go.text_print = function(block) {
+  // Print statement.
+  var msg = Blockly.Go.valueToCode(block, 'TEXT',
+      Blockly.Go.ORDER_NONE) || '\'\'';
+  return 'fmt.Printf(\"' + msg.slice(1,msg.length-1) + '\");\\n';
+};
+
+Blockly.Go.variables_get  = function(block) {
+  // Variable getter.
+  var code = Blockly.Go.variableDB_.getName(block.getFieldValue('VAR'),
+      Blockly.Variables.NAME_TYPE);
+  return [code, Blockly.Go.ORDER_ATOMIC];
 };
 
 Blockly.Go.variables_set = function(block) {
-	// Variable setter.
-	var argument0 = Blockly.Go.valueToCode(block, 'VALUE',
-		Blockly.Go.ORDER_ASSIGNMENT) || '0';
-	var varName = Blockly.Go.variableDB_.getName(
-		block.getFieldValue('VAR'), Blockly.Variables.NAME_TYPE);
-	return varName + ' = ' + argument0 + ';\n';
+  // Variable setter.
+  var argument0 = Blockly.Go.valueToCode(block, 'VALUE',
+      Blockly.Go.ORDER_ASSIGNMENT) || '0';
+  var varName = Blockly.Go.variableDB_.getName(
+      block.getFieldValue('VAR'), Blockly.Variables.NAME_TYPE);
+  return varName + ' = ' + argument0 + ';\n';
 };

@@ -290,7 +290,7 @@ Blockly.Natural.getAdjusted = function(block, atId, opt_delta, opt_negate,
   return at;
 };
 
-Blockly.Natural['chaincode_init'] = function(block) {
+Blockly.Natural.chaincode_init = function(block) {
   // Text value.
   var code = 'chaincode init: \n';
   var branch = Blockly.Natural.statementToCode(block, 'init_func');
@@ -299,7 +299,7 @@ Blockly.Natural['chaincode_init'] = function(block) {
   return code + '\n';
 };
 
-Blockly.Natural['chaincode_body'] = function(block) {
+Blockly.Natural.chaincode_body = function(block) {
   // TODO: Assemble Natural into code variable.
   var code = 'chaincode body: \n';
   var branch = Blockly.Natural.statementToCode(block, 'body_func');
@@ -308,7 +308,7 @@ Blockly.Natural['chaincode_body'] = function(block) {
   return code + '\n';
 };
 
-Blockly.Natural['chaincode_init_body'] = function(block) {
+Blockly.Natural.chaincode_init_body = function(block) {
   var statements_init_func = Blockly.Natural.statementToCode(block, 'init_func');
   var statements_body_func = Blockly.Natural.statementToCode(block, 'body_func');
   // TODO: Assemble Natural into code variable.
@@ -324,19 +324,19 @@ Blockly.Natural['chaincode_init_body'] = function(block) {
   
   return code + '\n';
 };
-Blockly.Natural['chaincode_invoke'] = function(block) {
+Blockly.Natural.chaincode_invoke = function(block) {
   var checkbox_check_invoke_security = block.getFieldValue('check_invoke_security') == 'TRUE';
   var usera_name = Blockly.Natural.valueToCode(block, 'user_A', Blockly.Natural.ORDER_ATOMIC);
   var userb_name = Blockly.Natural.valueToCode(block, 'user_B', Blockly.Natural.ORDER_ATOMIC);
   var money = Blockly.Natural.valueToCode(block, 'money_num', Blockly.Natural.ORDER_ATOMIC);
   // TODO: Assemble Natural into code variable.	
   var code = 'Transaction: ';
-  code += usera_name + ' gives ' + userb_name + ' ' + money + ' dollar. \n';
+  code += usera_name + ' gives ' + userb_name + ' ' + money + ' dollar(s). \n';
   return code;
 };
 
 
-Blockly.Natural['chaincode_query'] = function(block) {
+Blockly.Natural.chaincode_query = function(block) {
   var checkbox_check_query_security = block.getFieldValue('check_query_security') == 'TRUE';
   var user_name = Blockly.Natural.valueToCode(block, 'user_Query', Blockly.Natural.ORDER_ATOMIC);
   // TODO: Assemble Natural into code variable.
@@ -346,7 +346,7 @@ Blockly.Natural['chaincode_query'] = function(block) {
 };
 
 
-Blockly.Natural['chaincode_delete'] = function(block) {
+Blockly.Natural.chaincode_delete = function(block) {
   var checkbox_check_delete_security = block.getFieldValue('check_delete_security') == 'TRUE';
   var user_name = Blockly.Natural.valueToCode(block, 'user_Delete', Blockly.Natural.ORDER_ATOMIC);
   // TODO: Assemble Natural into code variable.
@@ -354,7 +354,7 @@ Blockly.Natural['chaincode_delete'] = function(block) {
   code += 'delete the user ' + user_name;
   return code;
 };
-Blockly.Natural['set_value'] = function(block) {
+Blockly.Natural.set_value = function(block) {
   var checkbox_flag = block.getFieldValue('check_set_security') == 'TRUE';
   var variable_name = Blockly.Natural.variableDB_.getName(block.getFieldValue('data'), Blockly.Variables.NAME_TYPE);
   var variable_value = Blockly.Natural.valueToCode(block, 'VARIABLE', Blockly.Natural.ORDER_ATOMIC);
@@ -365,19 +365,55 @@ Blockly.Natural['set_value'] = function(block) {
   return code;
 };
 
-Blockly.Natural['text'] = function(block) {
-  // Text value.
-  var code = Blockly.Natural.quote_(block.getFieldValue('TEXT'));
+Blockly.Natural.controls_if = function(block) {
+  // If/elseif/else condition.
+  var n = 0;
+  var code = '', branchCode, conditionCode;
+  do {
+    conditionCode = Blockly.Natural.valueToCode(block, 'IF' + n,
+      Blockly.Natural.ORDER_NONE) || 'false';
+    branchCode = Blockly.Natural.statementToCode(block, 'DO' + n);
+    code += (n > 0 ? ' else ' : '') +
+        'if  ' + conditionCode + '  \n' + branchCode + '';
+
+    ++n;
+  } while (block.getInput('IF' + n));
+
+  if (block.getInput('ELSE')) {
+    branchCode = Blockly.Natural.statementToCode(block, 'ELSE');
+    code += ' else \n' + branchCode + '';
+  }
+  return code + '\n';
+};
+
+Blockly.Natural.controls_ifelse = Blockly.Natural['controls_if'];
+
+Blockly.Natural.logic_compare = function(block) {
+  // Comparison operator.
+  var OPERATORS = {
+    'EQ': 'is equal to',
+    'NEQ': 'is not equal to',
+    'LT': 'less than ',
+    'LTE': 'no more than',
+    'GT': 'more than',
+    'GTE': 'no less than'
+  };
+  var operator = OPERATORS[block.getFieldValue('OP')];
+  var order = (operator == '==' || operator == '!=') ?
+      Blockly.Natural.ORDER_EQUALITY : Blockly.Natural.ORDER_RELATIONAL;
+  var argument0 = Blockly.Natural.valueToCode(block, 'A', order) || '0';
+  var argument1 = Blockly.Natural.valueToCode(block, 'B', order) || '0';
+  var code = argument0 + ' ' + operator + ' ' + argument1;
+  return [code, order];
+};
+
+Blockly.Natural.logic_boolean = function(block) {
+  // Boolean values true and false.
+  var code = (block.getFieldValue('BOOL') == 'TRUE') ? 'true' : 'false';
   return [code, Blockly.Natural.ORDER_ATOMIC];
 };
 
-Blockly.Natural['math_number'] = function(block) {
-  // Numeric value.
-  var code = parseFloat(block.getFieldValue('NUM'));
-  return [code, Blockly.Natural.ORDER_ATOMIC];
-};
-
-Blockly.Natural['controls_repeat_ext'] = function(block) {
+Blockly.Natural.controls_repeat_ext = function(block) {
   // Repeat n times.
   if (block.getField('TIMES')) {
     // Internal number.
@@ -398,21 +434,76 @@ Blockly.Natural['controls_repeat_ext'] = function(block) {
         'repeat_end', Blockly.Variables.NAME_TYPE);
     code += endVar + ' = ' + repeats + ';\n';
   }
-  code += 'for (' + loopVar + ' = 0; ' +
-      loopVar + ' < ' + endVar + '; ' +
-      loopVar + '++) {\n' +
-      branch + '}\n';
+  code += 'recycle for ' + endVar + ' times: \n' + branch + '\n';
   return code;
 };
 
-Blockly.Natural['variables_get'] = function(block) {
+Blockly.Natural.controls_whileUntil = function(block) {
+  // Do while/until loop.
+  var until = block.getFieldValue('MODE') == 'UNTIL';
+  var argument0 = Blockly.Natural.valueToCode(block, 'BOOL',
+      until ? Blockly.Natural.ORDER_LOGICAL_NOT :
+      Blockly.Natural.ORDER_NONE) || 'false';
+  var branch = Blockly.Natural.statementToCode(block, 'DO');
+  branch = Blockly.Natural.addLoopTrap(branch, block.id);
+  if (until) {
+    argument0 = '!' + argument0;
+  }
+  return 'recycle until ' + argument0 + ' \n' + branch + '\n';
+};
+
+Blockly.Natural.math_number = function(block) {
+  // Numeric value.
+  var code = parseFloat(block.getFieldValue('NUM'));
+  return [code, Blockly.Natural.ORDER_ATOMIC];
+};
+
+Blockly.Natural.math_arithmetic = function(block) {
+  // Basic arithmetic operators, and power.
+  var OPERATORS = {
+    'ADD': [' add ', Blockly.Natural.ORDER_ADDITION],
+    'MINUS': [' sub ', Blockly.Natural.ORDER_SUBTRACTION],
+    'MULTIPLY': [' multiply ', Blockly.Natural.ORDER_MULTIPLICATION],
+    'DIVIDE': [' divide ', Blockly.Natural.ORDER_DIVISION],
+    'POWER': [null, Blockly.Natural.ORDER_COMMA]  // Handle power separately.
+  };
+  var tuple = OPERATORS[block.getFieldValue('OP')];
+  var operator = tuple[0];
+  var order = tuple[1];
+  var argument0 = Blockly.Natural.valueToCode(block, 'A', order) || '0';
+  var argument1 = Blockly.Natural.valueToCode(block, 'B', order) || '0';
+  var code;
+  // Power in Natural requires a special case since it has no operator.
+  if (!operator) {
+    code = 'pow(' + argument0 + ', ' + argument1 + ')';
+    return [code, Blockly.Natural.ORDER_FUNCTION_CALL];
+  }
+  code = argument0 + operator + argument1;
+  return [code, order];
+};
+
+Blockly.Natural.text = function(block) {
+  // Text value.
+  var code = Blockly.Natural.quote_(block.getFieldValue('TEXT'));
+  return [code, Blockly.Natural.ORDER_ATOMIC];
+};
+
+Blockly.Natural.text_print = function(block) {
+  // Print statement.
+  var msg = Blockly.Natural.valueToCode(block, 'TEXT',
+      Blockly.Natural.ORDER_NONE) || '\'\'';
+  return 'Output the data of ' + msg + '\n';
+};
+
+
+Blockly.Natural.variables_get = function(block) {
   // Variable getter.
   var code = Blockly.Natural.variableDB_.getName(block.getFieldValue('VAR'),
       Blockly.Variables.NAME_TYPE);
   return [code, Blockly.Natural.ORDER_ATOMIC];
 };
 
-Blockly.Natural['variables_set'] = function(block) {
+Blockly.Natural.variables_set = function(block) {
   // Variable setter.
   var argument0 = Blockly.Natural.valueToCode(block, 'VALUE',
       Blockly.Natural.ORDER_ASSIGNMENT) || '0';
